@@ -14,7 +14,7 @@ import { useBetting } from '../../context/BettingContext';
 // ===== CONSTANTS =====
 const TICK_MS = 80;                      // ~8ms tick rate (~120Hz) - ultra smooth
 const TICKS_PER_CANDLE = 65;           // 375 ticks = 3 second candles at 120Hz
-const INTERPOLATION_SPEED = .65;        // Faster interpolation to match 120Hz
+const INTERPOLATION_SPEED = .15;        // Faster interpolation to match 120Hz
 const INITIAL_PRICE = 1.0;
 const COUNTDOWN_SECONDS = 5;
 

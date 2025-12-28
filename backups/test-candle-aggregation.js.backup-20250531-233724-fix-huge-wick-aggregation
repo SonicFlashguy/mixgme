@@ -1,0 +1,105 @@
+// Test script for candle aggregation logic
+// Run with: node test-candle-aggregation.js
+
+const CandleData = {
+  create: (open, high, low, close, timestamp) => ({
+    open,
+    high,
+    low,
+    close,
+    timestamp
+  })
+};
+
+// Replicate the aggregation functions from CandlestickChart.tsx
+const aggregateCandles = (candles) => {
+  if (candles.length === 0) {
+    throw new Error("Cannot aggregate empty candle array");
+  }
+  
+  if (candles.length === 1) {
+    return candles[0];
+  }
+  
+  const sortedByTime = [...candles].sort((a, b) => a.timestamp - b.timestamp);
+  
+  return {
+    open: sortedByTime[0].open, // Open of first candle
+    close: sortedByTime[sortedByTime.length - 1].close, // Close of last candle
+    high: Math.max(...sortedByTime.map(c => c.high)), // Highest of all highs
+    low: Math.min(...sortedByTime.map(c => c.low)), // Lowest of all lows
+    timestamp: sortedByTime[0].timestamp // Timestamp of first candle
+  };
+};
+
+const performCandleAggregation = (chartData) => {
+  // Only aggregate if we have 30 or more candles
+  if (chartData.length < 30) {
+    return chartData;
+  }
+  
+  console.log(`🔄 Performing candle aggregation - Current count: ${chartData.length}`);
+  
+  // Take first 3 candles for aggregation
+  const candlesToAggregate = chartData.slice(0, 3);
+  const remainingCandles = chartData.slice(3);
+  
+  console.log('📊 Aggregating candles:', {
+    firstCandle: candlesToAggregate[0],
+    secondCandle: candlesToAggregate[1], 
+    thirdCandle: candlesToAggregate[2]
+  });
+  
+  // Create aggregated candle preserving average price action
+  const aggregatedCandle = aggregateCandles(candlesToAggregate);
+  
+  console.log('✅ Aggregated candle created:', aggregatedCandle);
+  console.log(`📉 Chart count reduced from ${chartData.length} to ${[aggregatedCandle, ...remainingCandles].length}`);
+  
+  // Return new array with aggregated candle at the beginning
+  return [aggregatedCandle, ...remainingCandles];
+};
+
+// Test the aggregation logic
+console.log('🧪 Testing Candle Aggregation Logic\n');
+
+// Create test data with 32 candles
+const testCandles = [];
+const baseTime = Date.now();
+
+for (let i = 0; i < 32; i++) {
+  const price = 1.0 + (Math.random() - 0.5) * 0.2; // Random price around 1.0
+  const high = price + Math.random() * 0.05;
+  const low = price - Math.random() * 0.05;
+  const close = low + Math.random() * (high - low);
+  
+  testCandles.push(CandleData.create(
+    price,      // open
+    high,       // high
+    low,        // low
+    close,      // close
+    baseTime + (i * 3000) // timestamp (3 seconds apart)
+  ));
+}
+
+console.log(`📊 Created ${testCandles.length} test candles`);
+console.log(`💡 Should trigger aggregation since count >= 30\n`);
+
+// Test aggregation
+const result = performCandleAggregation(testCandles);
+
+console.log(`\n✅ Test Results:`);
+console.log(`   - Original count: ${testCandles.length}`);
+console.log(`   - Final count: ${result.length}`);
+console.log(`   - Expected final count: ${testCandles.length - 2} (3 candles become 1)`);
+console.log(`   - ✓ Aggregation working: ${result.length === testCandles.length - 2}`);
+
+// Test with less than 30 candles
+console.log(`\n🧪 Testing with 25 candles (should NOT aggregate)`);
+const smallTestCandles = testCandles.slice(0, 25);
+const smallResult = performCandleAggregation(smallTestCandles);
+console.log(`   - Original count: ${smallTestCandles.length}`);
+console.log(`   - Final count: ${smallResult.length}`);
+console.log(`   - ✓ No aggregation: ${smallResult.length === smallTestCandles.length}`);
+
+console.log('\n🎉 Candle Aggregation Test Complete!');

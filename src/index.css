@@ -1,0 +1,512 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'DynaPuff';
+  src: url('/fonts/DynaPuff-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'DynaPuff';
+  src: url('/fonts/DynaPuff-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'DynaPuff';
+  src: url('/fonts/DynaPuff-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'DynaPuff';
+  src: url('/fonts/DynaPuff-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 5%;
+    --foreground: 0 0% 98%;
+
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 43 24% 83%;
+    --primary-foreground: 0 0% 9%;
+
+    --secondary: 0 69% 32%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 0 0% 20%;
+    --muted-foreground: 0 0% 63.9%;
+
+    --accent: 139 61% 32%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 77% 44%;
+    --destructive-foreground: 0 0% 98%;
+
+    --positive: 142 63% 42%;
+    --positive-foreground: 0 0% 98%;
+
+    --border: 0 0% 20%;
+    --border-light: 0 0% 25%;
+    --border-subtle: 0 0% 15%;
+    --input: 0 0% 20%;
+    --ring: 43 24% 83%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    font-family: 'DynaPuff', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  }
+}
+
+.gradient-chart {
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.2) 0%, rgba(0, 0, 0, 0.4) 50%, rgba(0, 0, 0, 0.6) 100%);
+}
+
+.chart-container {
+  background-color: #000000;
+  background-image: radial-gradient(rgba(64, 64, 64, 0.2) 1px, transparent 0);
+  background-size: 20px 20px;
+}
+
+.buy-button {
+  background: #10783a;
+  color: white;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border-light));
+  padding: 12px 16px;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.3);
+  transition: all 0.1s ease;
+}
+
+.buy-button:hover {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 rgba(0,0,0,0.3);
+}
+
+.sell-button {
+  background: #be191c;
+  color: white;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border-light));
+  padding: 12px 16px;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.3);
+  transition: all 0.1s ease;
+}
+
+.sell-button:hover {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 rgba(0,0,0,0.3);
+}
+
+.connect-button {
+  background: white;
+  color: black;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-radius: 20px;
+  border: 1px solid hsl(var(--border-light));
+  padding: 8px 16px;
+  transition: all 0.1s ease;
+}
+
+.connect-button:hover {
+  transform: translateY(1px);
+  opacity: 0.9;
+}
+
+.deposit-button {
+  background: #2abb38;
+  color: white;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border-light));
+  padding: 8px 16px;
+  transition: all 0.1s ease;
+}
+
+.withdraw-button {
+  background: #6c1d1c;
+  color: white;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border-light));
+  padding: 8px 16px;
+  transition: all 0.1s ease;
+}
+
+.rugpass-button {
+  background: #d7c9b1;
+  color: black;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border-light));
+  padding: 8px 16px;
+  transition: all 0.1s ease;
+}
+
+/* Multiplier icons styling */
+.multiplier-icon {
+  width: 32px;
+  height: 32px;
+}
+
+/* Chat styling */
+.chat-container {
+  background-color: #0e0c0d;
+  border-radius: 8px;
+  height: 100%;
+}
+
+.chat-message {
+  padding: 4px 8px;
+  border-radius: 4px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.chat-message:hover {
+  background-color: #1a1a1a;
+}
+
+/* Chart styles */
+.mini-chart {
+  height: 40px;
+  width: 60px;
+  margin: 0 4px;
+}
+
+.mini-chart-green {
+  background: linear-gradient(to bottom right, transparent, #2abb38);
+}
+
+.mini-chart-red {
+  background: linear-gradient(to bottom right, transparent, #be191c);
+}
+
+.multiplier-container {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+/* Leaderboard styles */
+.leaderboard-container {
+  background-color: #0e0c0d;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.leaderboard-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #333;
+}
+
+.leaderboard-item:last-child {
+  border-bottom: none;
+}
+
+.profile-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+/* Level indicator */
+.level-progress {
+  height: 8px;
+  background-color: #333;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.level-progress-bar {
+  height: 100%;
+  background-color: #617c9c;
+}
+
+/* Hidden scrollbars by default, visible on hover/scroll */
+.scrollbar-hidden {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+.scrollbar-auto {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent; /* Firefox */
+}
+
+.scrollbar-auto::-webkit-scrollbar {
+  width: 6px; /* Chrome, Safari, Opera */
+  height: 6px;
+}
+
+.scrollbar-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-auto::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+}
+
+.scrollbar-auto::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Minimal scrollbar - only the draggable bar, everything else transparent */
+.scrollbar-minimal {
+  scrollbar-width: none; /* Firefox - hidden by default */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.scrollbar-minimal::-webkit-scrollbar {
+  width: 0px; /* Chrome, Safari, Opera - hidden by default */
+  height: 0px;
+  background: transparent; /* Completely transparent background */
+}
+
+.scrollbar-minimal.scrolling {
+  scrollbar-width: thin; /* Firefox - show thin scrollbar when scrolling */
+  scrollbar-color: rgba(255, 255, 255, 0.5) transparent; /* Firefox: thumb color, track transparent */
+}
+
+.scrollbar-minimal.scrolling::-webkit-scrollbar {
+  width: 1px; /* Chrome, Safari, Opera - minimum visible width */
+  height: 1px;
+  background: transparent; /* Completely transparent background */
+}
+
+/* Remove all scrollbar components except the thumb */
+.scrollbar-minimal::-webkit-scrollbar-track {
+  background: transparent; /* Completely transparent track */
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.scrollbar-minimal::-webkit-scrollbar-track-piece {
+  background: transparent; /* Transparent track pieces */
+}
+
+.scrollbar-minimal::-webkit-scrollbar-corner {
+  background: transparent; /* Transparent corner */
+}
+
+.scrollbar-minimal::-webkit-scrollbar-button {
+  display: none; /* Remove arrows completely */
+  width: 0;
+  height: 0;
+}
+
+/* Only the draggable thumb is visible - much shorter */
+.scrollbar-minimal::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 0.5px;
+  border: none;
+  box-shadow: none;
+  /* Reduce thumb length by 90% using larger borders as spacers */
+  border-top: 30px solid transparent;
+  border-bottom: 30px solid transparent;
+  border-left: 0;
+  border-right: 0;
+  background-clip: content-box;
+}
+
+.scrollbar-minimal::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.7);
+  border-top: 30px solid transparent;
+  border-bottom: 30px solid transparent;
+  background-clip: content-box;
+}
+
+.scrollbar-minimal::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.8);
+  border-top: 30px solid transparent;
+  border-bottom: 30px solid transparent;
+  background-clip: content-box;
+}
+
+/* Text wrapping utilities */
+.break-words-all {
+  word-break: break-all;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.text-wrap {
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.break-all {
+  word-break: break-all;
+}
+
+.break-normal {
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+/* Ultra-Smooth Rendering Optimizations */
+@layer utilities {
+  /* Hardware acceleration for smooth animations */
+  .gpu-accelerated {
+    will-change: transform;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+  }
+  
+  /* Canvas optimizations */
+  .smooth-canvas {
+    will-change: contents;
+    contain: strict;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+  }
+  
+  /* Ultra-smooth animations */
+  .ultra-smooth {
+    will-change: transform, opacity;
+    transform: translate3d(0, 0, 0);
+    backface-visibility: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  /* Performance optimized containers */
+  .performance-container {
+    contain: layout style paint;
+    isolation: isolate;
+  }
+  
+  /* Subpixel rendering */
+  .subpixel-text {
+    -webkit-font-smoothing: subpixel-antialiased;
+    -moz-osx-font-smoothing: auto;
+    text-rendering: optimizeSpeed;
+  }
+  
+  /* Chart-specific optimizations */
+  .chart-container {
+    will-change: contents;
+    contain: strict;
+    transform: translateZ(0);
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .chart-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    will-change: transform;
+    transform: translateZ(0);
+  }
+  
+  .chart-layer-interactive {
+    pointer-events: auto;
+  }
+  
+  /* Smooth scrolling optimizations */
+  .smooth-scroll {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+  
+  /* Animation performance classes */
+  .animate-ultra-smooth {
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+  }
+  
+  .animate-price-smooth {
+    transition: all 100ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  }
+  
+  /* Memory efficient transforms */
+  .efficient-transform {
+    transform-style: preserve-3d;
+    will-change: transform;
+  }
+  
+  /* High-DPI display optimizations */
+  @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .high-dpi-optimized {
+      image-rendering: -webkit-optimize-contrast;
+    }
+  }
+  
+  /* Reduce motion for accessibility */
+  @media (prefers-reduced-motion: reduce) {
+    .respect-motion-preference {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+  
+  /* Performance debugging utilities */
+  .debug-performance {
+    outline: 1px solid rgba(255, 0, 0, 0.3);
+  }
+  
+  .debug-repaints {
+    background: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 2px,
+      rgba(255, 0, 0, 0.1) 2px,
+      rgba(255, 0, 0, 0.1) 4px
+    );
+  }
+}

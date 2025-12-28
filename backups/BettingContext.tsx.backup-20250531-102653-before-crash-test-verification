@@ -1,0 +1,335 @@
+import React, { createContext, useState, ReactNode, useContext } from 'react';
+
+interface PlayerBet {
+  amount: number;
+  entryMultiplier: number;
+  isActive: boolean;
+}
+
+interface TradeAction {
+  id: string;
+  type: 'buy' | 'sell';
+  multiplier: number;
+  amount: number;
+  timestamp: number;
+}
+
+interface BettingContextType {
+  // Bet state
+  playerBet: PlayerBet;
+  setPlayerBet: React.Dispatch<React.SetStateAction<PlayerBet>>;
+  betAmount: string;
+  setBetAmount: React.Dispatch<React.SetStateAction<string>>;
+  sellPercentage: string;
+  setSellPercentage: React.Dispatch<React.SetStateAction<string>>;
+  balance: number;
+  setBalance: React.Dispatch<React.SetStateAction<number>>;
+  
+  // Trade tracking
+  tradeActions: TradeAction[];
+  addTradeAction: (action: TradeAction) => void;
+  clearTradeActions: () => void;
+  
+  // Game state to access multiplier
+  multiplier: number;
+  isGameActive: boolean;
+  hasCrashed: boolean;
+  crashPoint: number;
+  setGameState: (state: {
+    isGameActive: boolean;
+    currentMultiplier: number;
+    crashPoint: number;
+  }) => void;
+  
+  // Betting functions
+  placeBet: () => void;
+  cashOut: () => void;
+  getCurrentPnL: () => number;
+  getCumulativePnL: () => number; // Add cumulative PnL function
+}
+
+const BettingContext = createContext<BettingContextType | undefined>(undefined);
+
+export const BettingProvider: React.FC<{children: ReactNode}> = ({ children }) => {
+  // Player bet state
+  const [playerBet, setPlayerBet] = useState<PlayerBet>({
+    amount: 0,
+    entryMultiplier: 0,
+    isActive: false
+  });
+  
+  const [betAmount, setBetAmount] = useState<string>('0.01');
+  const [sellPercentage, setSellPercentage] = useState<string>('100');
+  const [balance, setBalance] = useState<number>(10000); // Original: 1000
+  
+  // Trade tracking state
+  const [tradeActions, setTradeActions] = useState<TradeAction[]>([]);
+  
+  // Game state
+  const [multiplier, setMultiplier] = useState<number>(1.0);
+  const [isGameActive, setIsGameActive] = useState<boolean>(false);
+  const [hasCrashed, setHasCrashed] = useState<boolean>(false);
+  const [crashPoint, setCrashPoint] = useState<number>(0);
+  
+  const setGameState = (state: { isGameActive: boolean, currentMultiplier: number, crashPoint: number }) => {
+    const wasGameActive = isGameActive;
+    const wasHasCrashed = hasCrashed;
+    
+    setIsGameActive(state.isGameActive);
+    setMultiplier(state.currentMultiplier);
+    setCrashPoint(state.crashPoint);
+    // Set hasCrashed based on whether the game is active
+    setHasCrashed(!state.isGameActive && state.crashPoint > 0);
+    
+    // **NEW GAME DETECTION - Clear trade history when new game starts**
+    // If we're starting a new game (became active from inactive), reset the PnL tracking
+    if (state.isGameActive && (!wasGameActive || wasHasCrashed)) {
+      console.log('🎮 New game started - clearing trade history for fresh PnL tracking');
+      setTradeActions([]);
+    }
+    
+    // **CRASH-CLOSES-TRADE FUNCTIONALITY**
+    // If the game has crashed and player has an active bet, automatically close the trade
+    // Player loses only their bet amount, not their entire balance
+    if (!state.isGameActive && state.crashPoint > 0 && playerBet.isActive) {
+      console.log('💥🎯 Crash detected with active trade! Auto-closing trade...');
+      console.log('💰 Trade loss:', { 
+        betAmount: playerBet.amount, 
+        entryMultiplier: playerBet.entryMultiplier,
+        crashPoint: state.crashPoint,
+        balanceBeforeLoss: balance
+      });
+      
+      // Add a sell trade action to record the crash-forced trade closure
+      addTradeAction({
+        id: `crash-sell-${Date.now()}`,
+        type: 'sell',
+        multiplier: state.crashPoint, // Sell at crash point (which could be below entry)
+        amount: playerBet.amount,
+        timestamp: Date.now()
+      });
+      
+      // Close the active bet - player loses their bet amount (already deducted when they placed the bet)
+      // No additional balance deduction needed since they already paid when placing the bet
+      setPlayerBet({
+        amount: 0,
+        entryMultiplier: 0,
+        isActive: false
+      });
+      
+      console.log('✅ Trade closed due to crash. Player lost bet amount:', playerBet.amount);
+    }
+  };
+  
+  // Trade tracking functions
+  const addTradeAction = (action: TradeAction) => {
+    setTradeActions(prev => [...prev, action]);
+  };
+  
+  const clearTradeActions = () => {
+    setTradeActions([]);
+  };
+  
+  // Place bet function
+  const placeBet = () => {
+    console.log('🎯 placeBet called:', { 
+      isGameActive, 
+      playerBetActive: playerBet.isActive, 
+      hasCrashed, 
+      betAmount 
+    });
+    
+    if (!isGameActive || playerBet.isActive || hasCrashed) {
+      console.log('🚫 placeBet blocked:', {
+        reason: !isGameActive ? 'game not active' : 
+                playerBet.isActive ? 'bet already active' : 
+                'game crashed'
+      });
+      return;
+    }
+    
+    const amount = parseFloat(betAmount);
+    if (isNaN(amount) || amount <= 0 || amount > balance) {
+      console.log('🚫 placeBet blocked: invalid amount', { amount, balance });
+      return;
+    }
+    
+    console.log('✅ placeBet executing:', { amount, multiplier, balance });
+    
+    setPlayerBet({
+      amount,
+      entryMultiplier: multiplier,
+      isActive: true
+    });
+    
+    setBalance(prev => prev - amount);
+    
+    // Add buy trade action
+    addTradeAction({
+      id: `buy-${Date.now()}`,
+      type: 'buy',
+      multiplier,
+      amount,
+      timestamp: Date.now()
+    });
+  };
+
+  // Cash out function - can sell partial position
+  const cashOut = () => {
+    console.log('💰 cashOut called:', { 
+      playerBetActive: playerBet.isActive, 
+      isGameActive, 
+      sellPercentage 
+    });
+    
+    if (!playerBet.isActive || !isGameActive) {
+      console.log('🚫 cashOut blocked:', {
+        reason: !playerBet.isActive ? 'no active bet' : 'game not active'
+      });
+      return;
+    }
+    
+    const percentage = parseFloat(sellPercentage);
+    if (isNaN(percentage) || percentage <= 0 || percentage > 100) {
+      console.log('🚫 cashOut blocked: invalid percentage', { percentage });
+      return;
+    }
+    
+    console.log('✅ cashOut executing:', { percentage, multiplier, playerBet });
+    
+    // Calculate portion of bet to cash out
+    const portionToSell = percentage / 100;
+    const amountToSell = playerBet.amount * portionToSell;
+    
+    const multiplierGain = multiplier / playerBet.entryMultiplier;
+    const payout = amountToSell * multiplierGain;
+    
+    // Update player's balance
+    setBalance(prev => prev + payout);
+    
+    // Add sell trade action
+    addTradeAction({
+      id: `sell-${Date.now()}`,
+      type: 'sell',
+      multiplier,
+      amount: amountToSell,
+      timestamp: Date.now()
+    });
+    
+    if (percentage === 100) {
+      // Full cash out
+      setPlayerBet({
+        amount: 0,
+        entryMultiplier: 0,
+        isActive: false
+      });
+    } else {
+      // Partial cash out
+      setPlayerBet(prev => ({
+        ...prev,
+        amount: prev.amount - amountToSell
+      }));
+    }
+  };
+
+  // Calculate current profit/loss for active position
+  const getCurrentPnL = (): number => {
+    if (!playerBet.isActive) return 0;
+    const multiplierGain = multiplier / playerBet.entryMultiplier;
+    return playerBet.amount * multiplierGain - playerBet.amount;
+  };
+
+  // Calculate cumulative profit/loss across all trades since last crash
+  const getCumulativePnL = (): number => {
+    let totalPnL = 0;
+    let currentPosition = 0; // Track current position amount
+    let currentEntryMultiplier = 0;
+    
+    // Process all trade actions
+    for (const action of tradeActions) {
+      if (action.type === 'buy') {
+        // Add to position
+        if (currentPosition === 0) {
+          // First buy - set entry multiplier
+          currentEntryMultiplier = action.multiplier;
+          currentPosition = action.amount;
+        } else {
+          // Additional buy - calculate weighted average entry
+          const totalValue = (currentPosition * currentEntryMultiplier) + (action.amount * action.multiplier);
+          currentPosition += action.amount;
+          currentEntryMultiplier = totalValue / currentPosition;
+        }
+      } else if (action.type === 'sell') {
+        // Calculate PnL for this sell
+        const multiplierGain = action.multiplier / currentEntryMultiplier;
+        const sellPnL = action.amount * multiplierGain - action.amount;
+        totalPnL += sellPnL;
+        
+        // Reduce position
+        currentPosition -= action.amount;
+        if (currentPosition <= 0) {
+          currentPosition = 0;
+          currentEntryMultiplier = 0;
+        }
+      }
+    }
+    
+    // Add unrealized PnL from current active position
+    if (playerBet.isActive) {
+      const multiplierGain = multiplier / playerBet.entryMultiplier;
+      const unrealizedPnL = playerBet.amount * multiplierGain - playerBet.amount;
+      totalPnL += unrealizedPnL;
+      console.log('📊 PnL Debug - Active bet unrealized PnL:', {
+        currentMultiplier: multiplier,
+        entryMultiplier: playerBet.entryMultiplier,
+        betAmount: playerBet.amount,
+        multiplierGain: multiplierGain,
+        unrealizedPnL: unrealizedPnL,
+        totalPnL: totalPnL
+      });
+    }
+
+    console.log('📊 PnL Debug - Final calculation:', {
+      tradeActionsCount: tradeActions.length,
+      hasActiveBet: playerBet.isActive,
+      finalTotalPnL: totalPnL
+    });
+    
+    return totalPnL;
+  };
+  
+  return (
+    <BettingContext.Provider value={{
+      playerBet,
+      setPlayerBet,
+      betAmount,
+      setBetAmount,
+      sellPercentage,
+      setSellPercentage,
+      balance,
+      setBalance,
+      tradeActions,
+      addTradeAction,
+      clearTradeActions,
+      multiplier,
+      isGameActive,
+      hasCrashed,
+      crashPoint,
+      setGameState,
+      placeBet,
+      cashOut,
+      getCurrentPnL,
+      getCumulativePnL
+    }}>
+      {children}
+    </BettingContext.Provider>
+  );
+};
+
+export const useBetting = () => {
+  const context = useContext(BettingContext);
+  if (context === undefined) {
+    throw new Error('useBetting must be used within a BettingProvider');
+  }
+  return context;
+};

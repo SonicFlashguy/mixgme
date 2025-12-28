@@ -1,0 +1,877 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+interface CandleData {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  timestamp: number;
+}
+
+interface CrashGameState {
+  isActive: boolean;
+  isPreparing: boolean;
+  multiplier: number;
+  hasCrashed: boolean;
+  crashPoint: number;
+  timeElapsed: number;
+  countdown: number;
+}
+
+const CandlestickChart: React.FC = () => {
+  const [gameState, setGameState] = useState<CrashGameState>({
+    isActive: false,
+    isPreparing: false,
+    multiplier: 1.00,
+    hasCrashed: false,
+    crashPoint: 0,
+    timeElapsed: 0,
+    countdown: 0
+  });
+
+  const [chartData, setChartData] = useState<CandleData[]>([]);
+  const [hasError, setHasError] = useState<boolean>(false);
+  
+  // Smooth price interpolation state
+  const [currentPrice, setCurrentPrice] = useState<number>(1.0);
+  const [targetPrice, setTargetPrice] = useState<number>(1.0);
+  
+  // References for intervals and animation
+  const gameIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const candleIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const smoothIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUpdateTimeRef = useRef<number>(Date.now());
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const currentPriceRef = useRef<number>(1.0);
+  const latestCandleValueRef = useRef<number>(1.0); // Track the latest actual candle value
+
+  // Error boundary-like functionality
+  useEffect(() => {
+    const handleError = (error: ErrorEvent) => {
+      console.error('Chart Error:', error);
+      setHasError(true);
+    };
+
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
+
+  // Generate crash point for the game with more realistic distribution
+  const generateCrashPoint = (): number => {
+    const random = Math.random();
+    
+    // 30% chance to crash below 1x (losses) - minimum 0.01x
+    if (random < 0.3) {
+      const subOneRandom = Math.random();
+      if (subOneRandom < 0.1) return 0.01 + Math.random() * 0.19; // 10% chance: 0.01x - 0.20x (big losses)
+      if (subOneRandom < 0.3) return 0.20 + Math.random() * 0.30; // 20% chance: 0.20x - 0.50x (medium losses)
+      return 0.50 + Math.random() * 0.49; // 70% chance: 0.50x - 0.99x (small losses)
+    }
+    
+    // 70% chance to go above 1x (profits)
+    const aboveOneRandom = Math.random();
+    if (aboveOneRandom < 0.4) return 1.01 + Math.random() * 0.99; // 40% chance: 1.01x - 2.00x
+    if (aboveOneRandom < 0.7) return 2.00 + Math.random() * 3.00; // 30% chance: 2.00x - 5.00x
+    if (aboveOneRandom < 0.9) return 5.00 + Math.random() * 5.00; // 20% chance: 5.00x - 10.00x
+    return 10.00 + Math.random() * 15.00; // 10% chance: 10.00x - 25.00x (huge wins)
+  };
+
+  // Generate realistic price movement for candles with trend and volatility
+  const generatePriceMovement = (currentPrice: number, volatility: number = 0.08): number => {
+    // Create more violent market movement with bigger swings
+    const trend = (Math.random() - 0.5) * 3; // -1.5 to 1.5 (increased range for more movement)
+    const spike = Math.random() < 0.15 ? (Math.random() - 0.5) * 0.2 : 0; // 15% chance of big spike
+    const noise = (Math.random() - 0.5) * volatility * 1.5; // Increased noise
+    const momentum = trend * volatility * 0.8 + noise + spike; // Combine factors
+    
+    const newPrice = currentPrice + momentum;
+    return Math.max(0.01, newPrice); // Minimum price of 0.01
+  };
+
+  // Start smooth price interpolation system for fluid animations
+  const startSmoothInterpolation = () => {
+    // Clear any existing smooth interval
+    if (smoothIntervalRef.current) {
+      clearInterval(smoothIntervalRef.current);
+    }
+
+    // Update smoothly at 60fps
+    smoothIntervalRef.current = setInterval(() => {
+      const now = Date.now();
+      const timeDelta = now - lastUpdateTimeRef.current;
+      
+      // Interpolation speed - how fast to move toward target
+      const interpolationSpeed = 0.05; // Adjust this value to control smoothness
+      
+      setCurrentPrice(prev => {
+        const difference = targetPrice - prev;
+        const step = difference * interpolationSpeed;
+        
+        // If very close to target, snap to target
+        if (Math.abs(difference) < 0.001) {
+          return targetPrice;
+        }
+        
+        const newPrice = prev + step;
+        currentPriceRef.current = newPrice; // Keep reference updated
+        return newPrice;
+      });
+      
+      lastUpdateTimeRef.current = now;
+    }, 16); // ~60fps for smooth animation
+  };
+
+  // Stop smooth interpolation
+  const stopSmoothInterpolation = () => {
+    if (smoothIntervalRef.current) {
+      clearInterval(smoothIntervalRef.current);
+      smoothIntervalRef.current = null;
+    }
+  };
+
+  // Start new game with realistic candlestick generation
+  const startNewGame = () => {
+    console.log('🎮 Starting new game...');
+    
+    // Immediately force reset game state to remove any overlays
+    setGameState(prev => ({
+      isActive: true,
+      isPreparing: false,
+      multiplier: 1.00,
+      hasCrashed: false,
+      crashPoint: 0,
+      timeElapsed: 0,
+      countdown: 0
+    }));
+    
+    // Clear ALL existing intervals and effects
+    if (gameIntervalRef.current) {
+      clearInterval(gameIntervalRef.current);
+      gameIntervalRef.current = null;
+    }
+    if (candleIntervalRef.current) {
+      clearInterval(candleIntervalRef.current);
+      candleIntervalRef.current = null;
+    }
+    
+    // Clear any running countdown or fade effects
+    const allIntervals = window.setInterval(() => {}, 9999);
+    for (let i = 1000; i <= allIntervals; i++) {
+      window.clearInterval(i);
+    }
+    
+    stopSmoothInterpolation();
+
+    // Generate new crash point
+    const newCrashPoint = generateCrashPoint();
+    console.log(`🎯 New game starting with crash point: ${newCrashPoint.toFixed(3)}`);
+    
+    // Reset price tracking
+    const initialPrice = 1.0;
+    setCurrentPrice(initialPrice);
+    setTargetPrice(initialPrice);
+    currentPriceRef.current = initialPrice;
+    
+    // Ensure the multiplier is properly set to match the initial price
+    setGameState(prev => ({
+      ...prev,
+      multiplier: initialPrice
+    }));
+    
+    // Reset chart data for a fresh start
+    setChartData([]); // Clear all previous candles
+    
+    // Initialize game state - ensure all crash-related states are reset
+    setGameState({
+      isActive: true,
+      isPreparing: false,
+      multiplier: initialPrice,
+      hasCrashed: false, // Reset crash state
+      crashPoint: newCrashPoint,
+      timeElapsed: 0,
+      countdown: 0 // Ensure countdown is reset
+    });
+    
+    // Initialize with the first candle after a short delay to ensure UI rendering is complete
+    setTimeout(() => {
+      const firstCandle: CandleData = {
+        open: initialPrice,
+        high: initialPrice,
+        low: initialPrice,
+        close: initialPrice,
+        timestamp: Date.now()
+      };
+      setChartData([firstCandle]);
+    }, 100);
+
+    // Start smooth price interpolation
+    startSmoothInterpolation();
+
+    // Start price simulation with crash detection
+    let targetPriceValue = initialPrice;
+    
+    // Create candles and update price target
+    candleIntervalRef.current = setInterval(() => {
+      // Generate new target price with more realistic movement
+      targetPriceValue = generatePriceMovement(targetPriceValue);
+      setTargetPrice(targetPriceValue);
+      
+      const now = Date.now();
+      
+      setChartData(prev => {
+        // Get previous candle for continuity
+        const lastCandle = prev[prev.length - 1];
+        
+        // Check if enough time has passed to create new candle (3s interval)
+        if (now - lastCandle.timestamp >= 3000) {
+          // Finalize previous candle with current price
+          const updatedLastCandle = {
+            ...lastCandle,
+            close: targetPriceValue,
+            high: Math.max(lastCandle.high, targetPriceValue),
+            low: Math.min(lastCandle.low, targetPriceValue)
+          };
+          
+          // Create new candle
+          const newCandle: CandleData = {
+            open: targetPriceValue,
+            high: targetPriceValue,
+            low: targetPriceValue,
+            close: targetPriceValue,
+            timestamp: now
+          };
+          
+          // Update chart with finalized previous candle and new candle
+          const updated = [...prev.slice(0, -1), updatedLastCandle, newCandle];
+          
+          // Update our reference with the latest candle value
+          latestCandleValueRef.current = targetPriceValue;
+          
+          // Update the multiplier directly from the latest candle's close value
+          setGameState(currentState => ({
+            ...currentState,
+            multiplier: targetPriceValue // Set multiplier to actual candle value
+          }));
+          
+          return updated.slice(-100); // Keep last 100 candles for history
+        } else {
+          // Just update the current candle
+          const updatedLastCandle = {
+            ...lastCandle,
+            close: targetPriceValue,
+            high: Math.max(lastCandle.high, targetPriceValue),
+            low: Math.min(lastCandle.low, targetPriceValue)
+          };
+          
+          // Update our reference with the latest candle value
+          latestCandleValueRef.current = targetPriceValue;
+          
+          // Update the multiplier directly from the candle's close value
+          setGameState(currentState => ({
+            ...currentState,
+            multiplier: targetPriceValue // Set multiplier to actual candle value
+          }));
+          
+          return [...prev.slice(0, -1), updatedLastCandle];
+        }
+      });
+      
+      // Check for crash condition
+      if ((newCrashPoint < 1.0 && targetPriceValue <= newCrashPoint) ||
+          (newCrashPoint >= 1.0 && targetPriceValue >= newCrashPoint)) {
+        
+        console.log(`💥 CRASH TRIGGERED! Current: ${targetPriceValue.toFixed(3)} Target: ${newCrashPoint.toFixed(3)}`);
+        
+        // Clear the intervals
+        if (candleIntervalRef.current) {
+          clearInterval(candleIntervalRef.current);
+          candleIntervalRef.current = null;
+        }
+        
+        // Create a new final candle that goes from current price to crash point
+        const lastPrice = chartData.length > 0 ? chartData[chartData.length - 1].close : targetPriceValue;
+        
+        // First finalize the current candle
+        const finalizedCurrentCandle = chartData.length > 0 ? 
+          {...chartData[chartData.length - 1], close: lastPrice} : 
+          {open: targetPriceValue, high: targetPriceValue, low: targetPriceValue, close: targetPriceValue, timestamp: Date.now()};
+          
+        // Then create a dramatic crash candle that goes to 0
+        const crashCandle: CandleData = {
+          open: lastPrice,
+          high: lastPrice, // High stays at current price
+          low: 0, // Low point is 0 for dramatic effect
+          close: 0, // Close at 0 for dramatic effect
+          timestamp: Date.now() + 100 // Just after the current time
+        };
+        
+        // Update chart with finalized current candle and the giant crash candle
+        setChartData(prev => [...prev.slice(0, -1), finalizedCurrentCandle, crashCandle]);
+        
+        // Update game state to crashed
+        setGameState(prev => {
+          console.log('💥 Setting game state to crashed');
+          return {
+            ...prev,
+            isActive: false,
+            isPreparing: false,
+            hasCrashed: true,
+            multiplier: 0, // Set to 0 to match the crash candle
+            crashPoint: newCrashPoint // Keep the actual crash point for display in the overlay
+          };
+        });
+
+        // Start countdown for next game
+        setTimeout(() => {
+          // Prepare for chart reset with visual transition
+          setGameState(prev => ({
+            ...prev,
+            countdown: 5,
+            isPreparing: true // Set to preparing state for visual transition
+          }));
+
+          // Fade out existing chart data gradually
+          const fadeOutEffect = setInterval(() => {
+            setChartData(prev => {
+              // Remove one candle at a time for visual fade-out effect
+              if (prev.length > 0) {
+                return prev.slice(0, -1);
+              } else {
+                clearInterval(fadeOutEffect);
+                return [];
+              }
+            });
+          }, 100);
+
+          const countdownInterval = setInterval(() => {
+            setGameState(prev => {
+              if (prev.countdown <= 1) {
+                clearInterval(countdownInterval);
+                clearInterval(fadeOutEffect); // Ensure fade effect is cleared
+                
+                // Force reset the crash UI elements by immediately updating hasCrashed
+                const resetState = {
+                  ...prev,
+                  hasCrashed: false,
+                  countdown: 0
+                };
+                
+                // Wait a tick to ensure UI updates before starting a new game
+                setTimeout(() => {
+                  startNewGame();
+                }, 50);
+                
+                return resetState;
+              }
+              return { ...prev, countdown: prev.countdown - 1 };
+            });
+          }, 1000);
+        }, 2000);
+      }
+    }, 100); // Update price target every 100ms for smooth movement
+  };
+
+  // Auto-start first game
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      startNewGame();
+    }, 1000);
+
+    return () => {
+      clearTimeout(timer);
+      if (gameIntervalRef.current) clearInterval(gameIntervalRef.current);
+      if (candleIntervalRef.current) clearInterval(candleIntervalRef.current);
+      stopSmoothInterpolation();
+    };
+  }, []);
+
+  // Canvas drawing effect - Professional chart rendering
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas size with high DPI support for sharp rendering
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+    const width = rect.width;
+    const height = rect.height;
+    const padding = 40; // Increased padding for price labels
+
+    // Define vertical boundary positions (matches the purple and yellow lines you drew)
+    const leftBoundary = padding + 40; // Purple line position (a bit right of regular padding)
+    const rightBoundary = width - padding - 100; // Yellow line position (further from right edge to allow space for labels)
+    
+    // Clear canvas with pure black background like professional trading charts
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, width, height);
+
+    // Calculate visible candles based on width of bounded area
+    const candleWidth = 10; // Fixed candle width for consistent appearance
+    const candleSpacing = 4; // Space between candles
+    const maxVisibleCandles = Math.floor((rightBoundary - leftBoundary) / (candleWidth + candleSpacing));
+    const visibleCandles = chartData.slice(-maxVisibleCandles);
+
+    if (visibleCandles.length === 0) {
+      // If no data, just draw grid
+      drawEmptyChartGrid(ctx, width, height, padding, leftBoundary, rightBoundary);
+      
+      // Draw boundary lines even when chart is empty
+      drawBoundaryLines(ctx, leftBoundary, rightBoundary, padding, height);
+      
+      return;
+    }
+
+    // Calculate price range from visible candles
+    const allPrices = visibleCandles.flatMap(c => [c.high, c.low]);
+    if (currentPrice) allPrices.push(currentPrice);
+    
+    const minPrice = Math.min(...allPrices) * 0.95; // Add 5% padding below
+    const maxPrice = Math.max(...allPrices) * 1.05; // Add 5% padding above
+    const priceRange = maxPrice - minPrice;
+
+    // Draw grid lines
+    drawChartGrid(ctx, width, height, padding, minPrice, maxPrice, leftBoundary, rightBoundary);
+    
+    // Normalize price to Y coordinate
+    const normalizeY = (price: number) => {
+      return height - padding - ((price - minPrice) / priceRange) * (height - 2 * padding);
+    };
+
+    // Draw candlesticks
+    visibleCandles.forEach((candle, index) => {
+      // Calculate x position within the bounded area
+      const x = leftBoundary + index * (candleWidth + candleSpacing);
+      
+      // Skip if outside the boundaries
+      if (x < leftBoundary || x + candleWidth > rightBoundary) return;
+      
+      // Detect if this is the special crash candle (close at 0)
+      const isCrashCandle = gameState.hasCrashed && index === visibleCandles.length - 1 && candle.close === 0;
+      
+      // Check if this is the latest active candle (not crashed)
+      const isLatestCandle = gameState.isActive && index === visibleCandles.length - 1;
+      
+      // If it's the crash candle, make it wider for emphasis
+      const finalCandleWidth = isCrashCandle ? candleWidth * 1.5 : candleWidth;
+      
+      drawCandle(ctx, candle, x, finalCandleWidth, normalizeY, isLatestCandle, rightBoundary);
+      
+      // If it's the crash candle, draw the crash indicator
+      if (isCrashCandle) {
+        const candleX = x + finalCandleWidth / 2;
+        drawCrashPoint(ctx, 0, candleX, normalizeY);
+      }
+    });
+
+    // Current price line drawing removed by user request
+    
+    // Draw boundary lines last so they're on top
+    drawBoundaryLines(ctx, leftBoundary, rightBoundary, padding, height);
+
+  }, [chartData, gameState, currentPrice]);
+  
+  // Helper function to draw boundary lines
+  const drawBoundaryLines = (
+    ctx: CanvasRenderingContext2D,
+    leftBoundary: number,
+    rightBoundary: number,
+    padding: number,
+    height: number
+  ) => {
+    // Draw left boundary (purple line)
+    ctx.beginPath();
+    ctx.strokeStyle = '#c471ed'; // Purple color matching your drawing
+    ctx.lineWidth = 2;
+    ctx.moveTo(leftBoundary, padding);
+    ctx.lineTo(leftBoundary, height - padding);
+    ctx.stroke();
+    
+    // Draw right boundary (yellow line)
+    ctx.beginPath();
+    ctx.strokeStyle = '#f7d060'; // Yellow color matching your drawing
+    ctx.lineWidth = 2;
+    ctx.moveTo(rightBoundary, padding);
+    ctx.lineTo(rightBoundary, height - padding);
+    ctx.stroke();
+  };
+
+  // Helper function to draw empty chart grid
+  const drawEmptyChartGrid = (
+    ctx: CanvasRenderingContext2D, 
+    width: number, 
+    height: number, 
+    padding: number,
+    leftBoundary: number = padding,
+    rightBoundary: number = width - padding
+  ) => {
+    // Draw grid lines
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    
+    // Horizontal grid lines
+    for (let i = 0; i <= 5; i++) {
+      const y = padding + ((height - padding * 2) / 5) * i;
+      ctx.beginPath();
+      ctx.moveTo(leftBoundary, y);
+      ctx.lineTo(rightBoundary, y);
+      ctx.stroke();
+    }
+    
+    // Show message based on game state
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'center';
+    
+    // Center message between boundaries
+    const centerX = leftBoundary + (rightBoundary - leftBoundary) / 2;
+    
+    if (gameState.isPreparing) {
+      ctx.fillText('Preparing chart...', centerX, height / 2);
+    } else if (gameState.countdown > 0) {
+      ctx.fillText('Next round starting...', centerX, height / 2);
+    } else {
+      ctx.fillText('Initializing chart...', centerX, height / 2);
+    }
+  };
+
+  // Helper function to draw chart grid and labels
+  const drawChartGrid = (
+    ctx: CanvasRenderingContext2D, 
+    width: number, 
+    height: number, 
+    padding: number,
+    minPrice: number,
+    maxPrice: number,
+    leftBoundary: number = padding,
+    rightBoundary: number = width - padding
+  ) => {
+    // Draw grid lines with subtle coloring
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
+    ctx.lineWidth = 0.5;
+    
+    // Horizontal grid lines with price labels
+    for (let i = 0; i <= 5; i++) {
+      const price = minPrice + ((maxPrice - minPrice) / 5) * i;
+      const y = height - padding - ((price - minPrice) / (maxPrice - minPrice)) * (height - 2 * padding);
+      
+      // Draw horizontal line
+      ctx.beginPath();
+      ctx.moveTo(leftBoundary, y);
+      ctx.lineTo(rightBoundary, y);
+      ctx.stroke();
+      
+      // Price labels on right side removed by user request
+    }
+    
+    // Draw a few vertical grid lines (time) within boundaries
+    const verticalLines = 4;
+    const boundaryWidth = rightBoundary - leftBoundary;
+    for (let i = 0; i <= verticalLines; i++) {
+      const x = leftBoundary + (boundaryWidth / verticalLines) * i;
+      ctx.beginPath();
+      ctx.moveTo(x, padding);
+      ctx.lineTo(x, height - padding);
+      ctx.stroke();
+    }
+  };
+
+  // Helper function to draw a single candle
+  const drawCandle = (
+    ctx: CanvasRenderingContext2D,
+    candle: CandleData,
+    x: number,
+    candleWidth: number,
+    normalizeY: (price: number) => number,
+    isLatestCandle: boolean = false,
+    rightBoundary: number = 0
+  ) => {
+    const openY = normalizeY(candle.open);
+    const closeY = normalizeY(candle.close);
+    const highY = normalizeY(candle.high);
+    const lowY = normalizeY(candle.low);
+
+    const bodyTop = Math.min(openY, closeY);
+    const bodyBottom = Math.max(openY, closeY);
+    const bodyHeight = Math.abs(closeY - openY);
+    const centerX = x + candleWidth / 2;
+
+    // Check if this is a crash candle (close at or near 0)
+    const isCrashCandle = candle.close === 0;
+    
+    // Determine candle color based on price direction
+    const isGreen = candle.close >= candle.open;
+    
+    // Professional trading chart colors for candlesticks
+    // Bright green/red for bodies and slightly darker for wicks
+    let wickColor, bodyFillColor, bodyStrokeColor;
+    
+    if (isCrashCandle) {
+      // Special styling for crash candle - more intense red
+      wickColor = '#ff0000';
+      bodyFillColor = '#ff0000';
+      bodyStrokeColor = '#ffffff'; // White border for emphasis
+    } else {
+      // Normal candle colors
+      wickColor = isGreen ? '#00ff00' : '#ff0000';
+      bodyFillColor = isGreen ? '#00ff00' : '#ff0000';
+      bodyStrokeColor = isGreen ? '#00cc00' : '#cc0000';
+    }
+
+    // Draw candle body (rectangle) - using width for consistent sizing
+    if (bodyHeight < 1 && !isCrashCandle) {
+      // Very small body (doji) - draw as line
+      ctx.strokeStyle = wickColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x, openY);
+      ctx.lineTo(x + candleWidth, openY);
+      ctx.stroke();
+    } else {
+      // Regular candle body
+      ctx.fillStyle = bodyFillColor;
+      
+      // For crash candle, add a gradient effect
+      if (isCrashCandle) {
+        const gradient = ctx.createLinearGradient(x, bodyTop, x, bodyBottom);
+        gradient.addColorStop(0, '#ff3333');
+        gradient.addColorStop(1, '#ff0000');
+        ctx.fillStyle = gradient;
+      }
+      
+      ctx.fillRect(x, bodyTop, candleWidth, bodyHeight);
+      
+      // Add border to make candles pop
+      ctx.strokeStyle = bodyStrokeColor;
+      ctx.lineWidth = isCrashCandle ? 2 : 1; // Thicker border for crash candle
+      ctx.strokeRect(x, bodyTop, candleWidth, bodyHeight);
+    }
+    
+    // Draw wicks using the same color but thinner lines
+    ctx.strokeStyle = wickColor;
+    ctx.lineWidth = 1;
+    
+    // Upper wick
+    if (highY < bodyTop) {
+      ctx.beginPath();
+      ctx.moveTo(centerX, highY);
+      ctx.lineTo(centerX, bodyTop);
+      ctx.stroke();
+    }
+
+    // Lower wick
+    if (lowY > bodyBottom) {
+      ctx.beginPath();
+      ctx.moveTo(centerX, bodyBottom);
+      ctx.lineTo(centerX, lowY);
+      ctx.stroke();
+    }
+
+    // For the latest candle, add a prominent value label
+    if (isLatestCandle && !isCrashCandle) {
+      // Create a pulse animation effect based on timestamp
+      const pulse = Math.sin(Date.now() / 200) * 0.2 + 0.8; // Value between 0.6 and 1.0
+      
+      // Draw background bubble for latest candle value
+      const valueText = `${candle.close.toFixed(2)}x`;
+      const textWidth = ctx.measureText(valueText).width + 10;
+      const bubbleWidth = Math.max(textWidth, 50);
+      const bubbleHeight = 24;
+      
+      // Check if the label would go beyond right boundary
+      const maxLabelX = rightBoundary - bubbleWidth - 10;
+      const bubbleX = Math.min(x + candleWidth + 5, maxLabelX);
+      const bubbleY = closeY - bubbleHeight / 2;
+      
+      // Draw arrow connecting candle to label
+      ctx.beginPath();
+      ctx.moveTo(x + candleWidth, closeY);
+      ctx.lineTo(bubbleX, closeY);
+      ctx.strokeStyle = isGreen ? 
+        `rgba(0, 255, 0, ${pulse})` : 
+        `rgba(255, 0, 0, ${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      // Draw background bubble
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+      ctx.beginPath();
+      ctx.roundRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 4);
+      ctx.fill();
+      
+      // Draw border with pulsing effect
+      ctx.strokeStyle = isGreen ? 
+        `rgba(0, 255, 0, ${pulse})` : 
+        `rgba(255, 0, 0, ${pulse})`;
+      ctx.lineWidth = 1.5 + pulse; // Width also pulses
+      ctx.stroke();
+      
+      // Draw value text
+      ctx.fillStyle = isGreen ? '#00ff00' : '#ff0000';
+      ctx.font = 'bold 14px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(valueText, bubbleX + bubbleWidth / 2, bubbleY + 17);
+      
+      // Draw a small "LIVE" indicator
+      ctx.font = '9px monospace';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText('LIVE', bubbleX + bubbleWidth / 2, bubbleY + 4);
+    }
+  };
+  
+  // Helper function to draw current price line
+  const drawCurrentPriceLine = (
+    ctx: CanvasRenderingContext2D,
+    price: number,
+    width: number,
+    padding: number,
+    normalizeY: (price: number) => number,
+    leftBoundary: number = padding,
+    rightBoundary: number = width - padding
+  ) => {
+    const currentY = normalizeY(price);
+    
+    // Current price line drawing removed by user request
+  };
+
+  // Helper function to draw crash point indicator
+  const drawCrashPoint = (
+    ctx: CanvasRenderingContext2D,
+    crashPoint: number,
+    x: number,
+    normalizeY: (price: number) => number
+  ) => {
+    const crashY = normalizeY(crashPoint);
+    
+    // For the crash to zero effect, we should place the indicator at the bottom
+    // of the crash candle (at zero) rather than at the crash point value
+    const zeroY = normalizeY(0);
+    
+    // Draw explosion effect at crash point
+    ctx.fillStyle = '#ff0000';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    
+    // Larger circle for more dramatic effect
+    ctx.beginPath();
+    ctx.arc(x, zeroY, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    
+    // Draw radiating lines for explosion effect
+    ctx.strokeStyle = '#ff5555';
+    ctx.lineWidth = 2;
+    const rayLength = 20;
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI * 2 / 8) * i;
+      ctx.beginPath();
+      ctx.moveTo(x, zeroY);
+      ctx.lineTo(
+        x + Math.cos(angle) * rayLength,
+        zeroY + Math.sin(angle) * rayLength
+      );
+      ctx.stroke();
+    }
+    
+    // Add crash text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CRASH!', x, zeroY - 25);
+  };
+
+  // Debug helper to log state changes
+  useEffect(() => {
+    console.log('Game state updated:', {
+      isActive: gameState.isActive,
+      isPreparing: gameState.isPreparing,
+      hasCrashed: gameState.hasCrashed,
+      countdown: gameState.countdown,
+      multiplier: gameState.multiplier,
+      showingOverlay: gameState.hasCrashed && gameState.countdown > 0 && !gameState.isActive && !gameState.isPreparing
+    });
+  }, [gameState]);
+  
+  // Make sure the multiplier is always synced with the latest candle data
+  useEffect(() => {
+    if (chartData.length > 0 && gameState.isActive) {
+      const latestCandle = chartData[chartData.length - 1];
+      latestCandleValueRef.current = latestCandle.close;
+      
+      // Update the multiplier to match the latest candle close value
+      setGameState(prev => ({
+        ...prev,
+        multiplier: latestCandle.close
+      }));
+    }
+  }, [chartData]);
+
+  // Status message helper
+  const getStatusMessage = () => {
+    if (gameState.isPreparing) return "Preparing...";
+    if (gameState.isActive) return "🚀 Live";
+    if (gameState.hasCrashed) return "💥 Crashed";
+    return "Loading";
+  };
+
+  // Error fallback UI
+  if (hasError) {
+    return (
+      <div className="chart-container border border-red-500 rounded-lg overflow-hidden relative p-4 h-[400px] bg-black">
+        <div className="text-white text-center p-8">
+          <h1 className="text-2xl font-bold mb-4">⚠️ Chart Error</h1>
+          <p className="text-lg">Something went wrong with the chart component</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Reload Page
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="chart-container border border-gray-700 rounded-lg overflow-hidden relative p-2 h-[400px] bg-black">
+      <div className={`absolute top-4 right-4 px-3 py-1 rounded-lg shadow-lg z-10 font-bold ${
+        gameState.isActive ? 'bg-green-600' : gameState.hasCrashed ? 'bg-red-600' : 'bg-yellow-600'
+      } text-white`}>
+        {getStatusMessage()}
+      </div>
+      
+      {/* Current multiplier display */}
+      <div className="absolute top-4 left-4 px-4 py-2 rounded-lg shadow-lg z-10 font-bold bg-black bg-opacity-70">
+        <span className={gameState.multiplier >= 1 ? 'text-green-500 text-xl' : 'text-red-500 text-xl'}>
+          {gameState.multiplier.toFixed(2)}x
+        </span>
+      </div>
+
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 z-10"
+        style={{ width: '100%', height: '100%' }}
+      />
+
+      {/* Only show crash overlay when game has crashed AND countdown is active AND not preparing for new game */}
+      {gameState.hasCrashed && gameState.countdown > 0 && !gameState.isActive && !gameState.isPreparing && (
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
+          <div className="text-center">
+            <div className="text-red-400 font-bold text-6xl mb-2">CRASHED!</div>
+            <div className="text-white text-2xl">at {gameState.crashPoint.toFixed(2)}x → 0.00x</div>
+            <div className="text-gray-400 text-lg mt-2">
+              Next round in {gameState.countdown > 0 ? gameState.countdown : '0'}s
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default CandlestickChart;

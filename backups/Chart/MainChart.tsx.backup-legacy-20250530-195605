@@ -1,0 +1,742 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+interface CandleData {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  timestamp: number;
+}
+
+interface CrashGameState {
+  isActive: boolean;
+  isPreparing: boolean;
+  multiplier: number;
+  hasCrashed: boolean;
+  crashPoint: number;
+  timeElapsed: number;
+  countdown: number;
+}
+
+interface PlayerBet {
+  amount: number;
+  entryMultiplier: number;
+  isActive: boolean;
+}
+
+const MainChart: React.FC = () => {
+  const [gameState, setGameState] = useState<CrashGameState>({
+    isActive: false,
+    isPreparing: false,
+    multiplier: 1.00,
+    hasCrashed: false,
+    crashPoint: 0,
+    timeElapsed: 0,
+    countdown: 0
+  });
+
+  const [playerBet, setPlayerBet] = useState<PlayerBet>({
+    amount: 0,
+    entryMultiplier: 0,
+    isActive: false
+  });
+
+  const [betAmount, setBetAmount] = useState<string>('10');
+  const [balance, setBalance] = useState<number>(1000);
+
+  const [chartData, setChartData] = useState<CandleData[]>([]);
+  const [currentCandle, setCurrentCandle] = useState<CandleData | null>(null);
+  const gameIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const candleIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Smooth price interpolation state
+  const [currentPrice, setCurrentPrice] = useState<number>(1.0);
+  const [targetPrice, setTargetPrice] = useState<number>(1.0);
+  const smoothIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUpdateTimeRef = useRef<number>(Date.now());
+
+  // Generate random crash point - starts at 1x, can go above or below, minimum 0.01x
+  const generateCrashPoint = (): number => {
+    const random = Math.random();
+    
+    // 30% chance to crash below 1x (losses) - minimum 0.01x
+    if (random < 0.3) {
+      const subOneRandom = Math.random();
+      if (subOneRandom < 0.1) return 0.01 + Math.random() * 0.19; // 10% chance: 0.01x - 0.20x (big losses)
+      if (subOneRandom < 0.3) return 0.20 + Math.random() * 0.30; // 20% chance: 0.20x - 0.50x (medium losses)
+      return 0.50 + Math.random() * 0.49; // 70% chance: 0.50x - 0.99x (small losses)
+    }
+    
+    // 70% chance to go above 1x (profits)
+    const aboveOneRandom = Math.random();
+    if (aboveOneRandom < 0.4) return 1.01 + Math.random() * 0.99; // 40% chance: 1.01x - 2.00x
+    if (aboveOneRandom < 0.7) return 2.00 + Math.random() * 3.00; // 30% chance: 2.00x - 5.00x
+    if (aboveOneRandom < 0.9) return 5.00 + Math.random() * 5.00; // 20% chance: 5.00x - 10.00x
+    return 10.00 + Math.random() * 15.00; // 10% chance: 10.00x - 25.00x (huge wins)
+  };
+
+  // Clear chart canvas
+  const clearChart = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas size
+    canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+    canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+    const width = canvas.offsetWidth;
+    const height = canvas.offsetHeight;
+
+    // Clear the entire canvas
+    ctx.clearRect(0, 0, width, height);
+    
+    // Reset chart data
+    setChartData([]);
+    setCurrentCandle(null);
+  };
+
+  // Generate realistic price movement for candles
+  const generatePriceMovement = (currentPrice: number, volatility: number = 0.08): number => {
+    // Create more violent market movement with bigger swings
+    const trend = (Math.random() - 0.5) * 3; // -1.5 to 1.5 (increased from 2)
+    const spike = Math.random() < 0.15 ? (Math.random() - 0.5) * 0.2 : 0; // 15% chance of big spike
+    const noise = (Math.random() - 0.5) * volatility * 1.5; // Increased noise
+    const momentum = trend * volatility * 0.8 + noise + spike; // Increased momentum factor
+    
+    const newPrice = currentPrice + momentum;
+    return Math.max(0.01, newPrice); // Minimum price of 0.01
+  };
+
+  // Place bet function
+  const placeBet = () => {
+    if (!gameState.isActive || playerBet.isActive) return;
+    
+    const amount = parseFloat(betAmount);
+    if (amount <= 0 || amount > balance) return;
+    
+    setPlayerBet({
+      amount,
+      entryMultiplier: gameState.multiplier,
+      isActive: true
+    });
+    
+    setBalance(prev => prev - amount);
+  };
+
+  // Sell/Cash out function
+  const cashOut = () => {
+    if (!playerBet.isActive || !gameState.isActive) return;
+    
+    const multiplierGain = gameState.multiplier / playerBet.entryMultiplier;
+    const payout = playerBet.amount * multiplierGain;
+    
+    setBalance(prev => prev + payout);
+    setPlayerBet({
+      amount: 0,
+      entryMultiplier: 0,
+      isActive: false
+    });
+  };
+
+  // Calculate current profit/loss
+  const getCurrentPnL = (): number => {
+    if (!playerBet.isActive) return 0;
+    const multiplierGain = gameState.multiplier / playerBet.entryMultiplier;
+    return playerBet.amount * multiplierGain - playerBet.amount;
+  };  // Start smooth price interpolation system
+  const startSmoothInterpolation = () => {
+    // Clear any existing smooth interval
+    if (smoothIntervalRef.current) {
+      clearInterval(smoothIntervalRef.current);
+    }
+
+    // Update smoothly at 60fps (16.67ms intervals)
+    smoothIntervalRef.current = setInterval(() => {
+      const now = Date.now();
+      const timeDelta = now - lastUpdateTimeRef.current;
+      
+      // Interpolation speed - how fast to move toward target
+      const interpolationSpeed = 0.05; // Adjust this value to control smoothness (0.01 = very smooth, 0.1 = faster)
+      
+      setCurrentPrice(prev => {
+        const difference = targetPrice - prev;
+        const step = difference * interpolationSpeed;
+        
+        // If very close to target, snap to target
+        if (Math.abs(difference) < 0.001) {
+          return targetPrice;
+        }
+        
+        return prev + step;
+      });
+      
+      lastUpdateTimeRef.current = now;
+    }, 16); // ~60fps for smooth animation
+  };
+
+  // Stop smooth interpolation
+  const stopSmoothInterpolation = () => {
+    if (smoothIntervalRef.current) {
+      clearInterval(smoothIntervalRef.current);
+      smoothIntervalRef.current = null;
+    }
+  };
+
+  // Start new candlestick every 3 seconds
+  // Start new candlestick every 3 seconds
+  const startCandleUpdates = (initialPrice: number) => {
+    let targetPriceValue = initialPrice;
+    
+    // Clear any existing interval
+    if (candleIntervalRef.current) {
+      clearInterval(candleIntervalRef.current);
+    }
+    
+    // Initialize smooth interpolation
+    setCurrentPrice(initialPrice);
+    setTargetPrice(initialPrice);
+    startSmoothInterpolation();
+    
+    // Create initial candle
+    setCurrentCandle({
+      open: initialPrice,
+      high: initialPrice,
+      low: initialPrice,
+      close: initialPrice,
+      timestamp: Date.now()
+    });
+
+    candleIntervalRef.current = setInterval(() => {
+      // Generate new target price (same logic as before)
+      targetPriceValue = generatePriceMovement(targetPriceValue);
+      
+      // Update target price for smooth interpolation
+      setTargetPrice(targetPriceValue);
+      
+      setCurrentCandle(prev => {
+        if (!prev) return null;
+        
+        // Check if 3 seconds have passed to start new candle
+        const now = Date.now();
+        if (now - prev.timestamp >= 3000) {
+          // Finalize current candle and add to history
+          const finalCandle = { ...prev, close: targetPriceValue };
+          setChartData(prevData => {
+            const newData = [...prevData, finalCandle];
+            // Keep only last 60 candles for performance
+            return newData.slice(-60);
+          });
+          
+          // Start new candle
+          return {
+            open: targetPriceValue,
+            high: targetPriceValue,
+            low: targetPriceValue,
+            close: targetPriceValue,
+            timestamp: now
+          };
+        } else {
+          // Update current candle using the target price
+          return {
+            ...prev,
+            high: Math.max(prev.high, targetPriceValue),
+            low: Math.min(prev.low, targetPriceValue),
+            close: targetPriceValue
+          };
+        }
+      });
+      
+    }, 100); // Generate new target price every 100ms (same frequency as before)
+  };
+
+  // Update current candle with smooth currentPrice in real-time
+  useEffect(() => {
+    if (gameState.isActive && !gameState.hasCrashed && currentCandle) {
+      setCurrentCandle(prev => {
+        if (!prev) return null;
+        
+        return {
+          ...prev,
+          high: Math.max(prev.high, currentPrice),
+          low: Math.min(prev.low, currentPrice),
+          close: currentPrice
+        };
+      });
+    }
+  }, [currentPrice, gameState.isActive, gameState.hasCrashed]);
+
+  // Sync game multiplier with smooth current price
+  useEffect(() => {
+    if (gameState.isActive && !gameState.hasCrashed) {
+      setGameState(prev => ({ ...prev, multiplier: currentPrice }));
+    }
+  }, [currentPrice, gameState.isActive, gameState.hasCrashed]);
+    // Clear the chart first
+    clearChart();
+    
+    const crashPoint = generateCrashPoint();
+    
+    setGameState({
+      isActive: false,
+      isPreparing: true,
+      multiplier: 1.00,
+      hasCrashed: false,
+      crashPoint,
+      timeElapsed: 0,
+      countdown: 0
+    });
+    
+    setPlayerBet({
+      amount: 0,
+      entryMultiplier: 0,
+      isActive: false
+    });
+    
+    // Start with completely empty chart - no historical candles
+    setChartData([]);
+    setCurrentCandle(null);
+    
+    // Start the game after 3 second preparation
+    setTimeout(() => {
+      setGameState(prev => ({ ...prev, isPreparing: false, isActive: true }));
+      
+      // Start candlestick updates with base price of 1.00
+      const basePrice = 1.00;
+      startCandleUpdates(basePrice);
+      
+      // Game logic - monitor for crash
+      gameIntervalRef.current = setInterval(() => {
+        setGameState(prev => {
+          const currentMultiplier = prev.multiplier; // Use the smoothly updated multiplier
+          
+          // Check if crash point reached
+          if ((prev.crashPoint < 1.0 && currentMultiplier <= prev.crashPoint) ||
+              (prev.crashPoint >= 1.0 && currentMultiplier >= prev.crashPoint)) {
+            
+            // Stop all intervals
+            if (gameIntervalRef.current) clearInterval(gameIntervalRef.current);
+            if (candleIntervalRef.current) clearInterval(candleIntervalRef.current);
+            stopSmoothInterpolation(); // Stop smooth interpolation
+            
+            // Create final crash candle
+            setCurrentCandle(current => {
+              if (current) {
+                const crashCandle = { 
+                  ...current, 
+                  close: prev.crashPoint,
+                  high: prev.crashPoint > current.high ? prev.crashPoint : current.high,
+                  low: prev.crashPoint < current.low ? prev.crashPoint : current.low
+                };
+                setChartData(prevData => [...prevData, crashCandle]);
+              }
+              return null;
+            });
+            
+            // Don't clear chart here - let it show crash for 3 seconds
+            // Chart will be cleared when countdown starts
+            
+            return {
+              ...prev,
+              hasCrashed: true,
+              isActive: false,
+              multiplier: prev.crashPoint
+            };
+          }
+          
+          return prev;
+        });
+      }, 50); // Check crash more frequently for accuracy with smooth interpolation
+      
+    }, 3000);
+  };
+
+  // Auto-restart after crash with countdown
+  useEffect(() => {
+    if (gameState.hasCrashed) {
+      // Handle losing bets on crash
+      if (playerBet.isActive) {
+        setPlayerBet({
+          amount: 0,
+          entryMultiplier: 0,
+          isActive: false
+        });
+      }
+
+      // Wait 3 seconds to show crash, then start countdown and clear chart
+      setTimeout(() => {
+        // Clear chart when countdown begins
+        clearChart();
+        
+        // Start 15-second countdown
+        setGameState(prev => ({ ...prev, countdown: 15 }));
+        
+        const countdownInterval = setInterval(() => {
+          setGameState(prev => {
+            if (prev.countdown <= 1) {
+              clearInterval(countdownInterval);
+              setTimeout(() => startNewGame(), 100);
+              return { ...prev, countdown: 0 };
+            }
+            return { ...prev, countdown: prev.countdown - 1 };
+          });
+        }, 1000);
+
+        return () => {
+          clearInterval(countdownInterval);
+        };
+      }, 3000); // 3 second delay to show crash before clearing
+    }
+  }, [gameState.hasCrashed]);
+
+  // Start first game on mount
+  useEffect(() => {
+    // Clear chart on initial load
+    clearChart();
+    
+    startNewGame();
+    
+    return () => {
+      if (gameIntervalRef.current) {
+        clearInterval(gameIntervalRef.current);
+      }
+      if (candleIntervalRef.current) {
+        clearInterval(candleIntervalRef.current);
+      }
+      stopSmoothInterpolation(); // Clean up smooth interpolation
+    };
+  }, []);
+
+  // Draw candlestick chart on canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas size
+    canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+    canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+    const width = canvas.offsetWidth;
+    const height = canvas.offsetHeight;
+
+    ctx.clearRect(0, 0, width, height);
+
+    // Combine historical and current candle
+    const candlesToRender = currentCandle ? [...chartData, currentCandle] : chartData;
+    if (candlesToRender.length === 0) {
+      // If no data, just show empty chart with grid
+      const padding = 40;
+      
+      // Draw grid lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.lineWidth = 1;
+      
+      for (let i = 0; i <= 5; i++) {
+        const y = padding + ((height - padding * 2) / 5) * i;
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+      }
+      
+      // Show different messages based on game state
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.font = '16px monospace';
+      ctx.textAlign = 'center';
+      
+      if (gameState.isPreparing) {
+        ctx.fillText('Preparing chart...', width / 2, height / 2);
+      } else if (gameState.countdown > 0) {
+        ctx.fillText('Chart cleared - Next round starting...', width / 2, height / 2);
+      } else {
+        ctx.fillText('Chart Loading...', width / 2, height / 2);
+      }
+      return;
+    }
+
+    const padding = 40;
+    const chartWidth = width - padding * 2;
+    const chartHeight = height - padding * 2;
+    
+    // Show last 40 candles for proper scrolling effect
+    const maxVisibleCandles = 40;
+    const visibleCandles = candlesToRender.slice(-maxVisibleCandles);
+    
+    // Get min/max values from visible candles and include current price
+    const allValues = visibleCandles.flatMap(candle => [candle.open, candle.high, candle.low, candle.close]);
+    
+    // Include current price in the range calculation when game is active
+    if (gameState.isActive && !gameState.hasCrashed && currentPrice) {
+      allValues.push(currentPrice);
+    }
+    
+    const maxValue = Math.max(...allValues) * 1.05; // Add 5% padding
+    const minValue = Math.min(...allValues) * 0.95; // Add 5% padding
+
+    // Draw grid lines
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    
+    for (let i = 0; i <= 5; i++) {
+      const y = padding + (chartHeight / 5) * i;
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(width - padding, y);
+      ctx.stroke();
+    }
+
+    // Draw price labels
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.font = '12px monospace';
+    for (let i = 0; i <= 5; i++) {
+      const value = maxValue - ((maxValue - minValue) / 5) * i;
+      const y = padding + (chartHeight / 5) * i;
+      ctx.fillText(value.toFixed(2) + 'x', width - padding + 5, y + 4);
+    }
+
+    // Calculate candle dimensions
+    const candleWidth = chartWidth / maxVisibleCandles;
+    const candleSpacing = candleWidth * 0.1;
+    const bodyWidth = candleWidth * 0.8;
+
+    // Normalize values to canvas coordinates
+    const normalizeY = (value: number) => {
+      const normalized = (value - minValue) / (maxValue - minValue);
+      return padding + chartHeight - (normalized * chartHeight);
+    };
+
+    // Draw candlesticks
+    visibleCandles.forEach((candle, index) => {
+      const x = padding + (index * candleWidth) + candleSpacing / 2;
+      const centerX = x + bodyWidth / 2;
+
+      const openY = normalizeY(candle.open);
+      const closeY = normalizeY(candle.close);
+      const highY = normalizeY(candle.high);
+      const lowY = normalizeY(candle.low);
+
+      // Determine candle color (green if close > open, red if close < open)
+      const isGreen = candle.close >= candle.open;
+      const candleColor = isGreen ? '#22c55e' : '#ef4444';
+      const wickColor = '#9ca3af'; // Grey color for wicks
+
+      // Calculate body boundaries
+      const bodyTop = Math.min(openY, closeY);
+      const bodyBottom = Math.max(openY, closeY);
+
+      // Calculate minimum thresholds for wick appearance (30% less wicks)
+      const bodyRange = Math.abs(candle.close - candle.open);
+      const minWickThreshold = Math.max(bodyRange * 0.2, 0.005); // Minimum 20% of body size or 0.005
+
+      // Draw upper wick only if high extends significantly above the body
+      const upperExtension = candle.high - Math.max(candle.open, candle.close);
+      if (upperExtension > minWickThreshold) {
+        ctx.strokeStyle = wickColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX, highY);
+        ctx.lineTo(centerX, bodyTop);
+        ctx.stroke();
+      }
+
+      // Draw lower wick only if low extends significantly below the body
+      const lowerExtension = Math.min(candle.open, candle.close) - candle.low;
+      if (lowerExtension > minWickThreshold) {
+        ctx.strokeStyle = wickColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX, bodyBottom);
+        ctx.lineTo(centerX, lowY);
+        ctx.stroke();
+      }
+
+      // Draw candle body
+      ctx.fillStyle = candleColor;
+      const bodyHeight = Math.abs(closeY - openY) || 2; // Minimum height of 2px for doji
+      ctx.fillRect(x, bodyTop, bodyWidth, bodyHeight);
+
+      // Add border to candle body
+      ctx.strokeStyle = candleColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, bodyTop, bodyWidth, bodyHeight);
+    });
+
+    // Draw current multiplier line (only when game is active)
+    if (gameState.isActive && !gameState.hasCrashed && currentPrice) {
+      const currentY = normalizeY(currentPrice);
+      
+      // Draw horizontal line across the chart
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]); // Dashed line
+      ctx.beginPath();
+      ctx.moveTo(padding, currentY);
+      ctx.lineTo(width - padding, currentY);
+      ctx.stroke();
+      ctx.setLineDash([]); // Reset line dash
+      
+      // Draw multiplier value on the right side
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.font = 'bold 12px monospace';
+      ctx.textAlign = 'left';
+      const multiplierText = `${currentPrice.toFixed(2)}x`;
+      const textWidth = ctx.measureText(multiplierText).width;
+      
+      // Background for text
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(width - padding - textWidth - 8, currentY - 10, textWidth + 6, 16);
+      
+      // Text
+      ctx.fillStyle = currentPrice < 1.0 ? '#ef4444' : 
+                     currentPrice < 2.0 ? '#fbbf24' : '#22c55e';
+      ctx.fillText(multiplierText, width - padding - textWidth - 5, currentY + 3);
+    }
+
+    // Draw crash point if crashed
+    if (gameState.hasCrashed && visibleCandles.length > 0) {
+      const lastCandleIndex = visibleCandles.length - 1;
+      const lastX = padding + (lastCandleIndex * candleWidth) + candleWidth / 2;
+      const crashY = normalizeY(gameState.crashPoint);
+
+      ctx.fillStyle = '#ef4444';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(lastX, crashY, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      
+      // Add crash text
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 14px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('CRASH!', lastX, crashY - 15);
+    }
+
+  }, [chartData, currentCandle, gameState, currentPrice]);
+
+  const getStatusMessage = () => {
+    if (gameState.isPreparing) return "Preparing launch...";
+    if (gameState.isActive) return "🚀 Flying!";
+    if (gameState.hasCrashed) return "💥 Crashed!";
+    return "Ready";
+  };
+
+  const getStatusColor = () => {
+    if (gameState.isPreparing) return "text-yellow-400";
+    if (gameState.isActive) return "text-green-400";
+    if (gameState.hasCrashed) return "text-red-400";
+    return "text-gray-400";
+  };
+
+  return (
+    <div className="chart-container border border-border-light rounded-lg overflow-hidden relative p-4 h-[325px]">
+      {/* Background gradient */}
+      <div className="absolute left-0 top-0 w-full h-full opacity-10 gradient-chart" />
+
+      {/* Status indicator */}
+      <div className={`absolute top-4 left-4 px-3 py-1 rounded-lg shadow-lg z-10 font-bold ${
+        gameState.isActive ? 'bg-green-600' : gameState.hasCrashed ? 'bg-red-600' : 'bg-yellow-600'
+      } text-white`}>
+        {getStatusMessage()}
+      </div>
+
+      {/* Game canvas */}
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-4 z-10"
+        style={{ width: 'calc(100% - 2rem)', height: 'calc(100% - 2rem)' }}
+      />
+
+      {/* Crash message */}
+      {gameState.hasCrashed && (
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
+          <div className="text-center">
+            <div className="text-red-400 font-bold text-6xl mb-2">CRASHED!</div>
+            <div className="text-white text-2xl">at {gameState.crashPoint.toFixed(2)}x</div>
+            <div className="text-gray-400 text-lg mt-2">
+              Next round in {gameState.countdown}s
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Betting Controls */}
+      <div className="absolute bottom-4 left-4 z-20 flex flex-col gap-2">
+        {/* Balance Display */}
+        <div className="bg-black bg-opacity-75 text-white px-3 py-1 rounded text-sm">
+          Balance: ${balance.toFixed(2)}
+        </div>
+        
+        {/* Current Bet Info */}
+        {playerBet.isActive && (
+          <div className="bg-blue-600 bg-opacity-75 text-white px-3 py-2 rounded text-sm">
+            <div>Bet: ${playerBet.amount.toFixed(2)}</div>
+            <div>Entry: {playerBet.entryMultiplier.toFixed(2)}x</div>
+            <div className={`font-bold ${getCurrentPnL() >= 0 ? 'text-green-300' : 'text-red-300'}`}>
+              P&L: ${getCurrentPnL().toFixed(2)}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Betting Controls */}
+      <div className="absolute bottom-4 right-4 z-20 flex flex-col gap-2">
+        {/* Bet Amount Input */}
+        <div className="flex gap-2">
+          <input
+            type="number"
+            value={betAmount}
+            onChange={(e) => setBetAmount(e.target.value)}
+            className="w-20 px-2 py-1 rounded bg-gray-800 text-white border border-gray-600 text-sm"
+            placeholder="Amount"
+            min="1"
+            max={balance}
+          />
+          <button
+            onClick={placeBet}
+            disabled={!gameState.isActive || playerBet.isActive || parseFloat(betAmount) > balance}
+            className="px-4 py-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded font-bold text-sm transition-colors"
+          >
+            BET
+          </button>
+        </div>
+        
+        {/* Cash Out Button */}
+        {playerBet.isActive && gameState.isActive && (
+          <button
+            onClick={cashOut}
+            className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded font-bold text-sm transition-colors"
+          >
+            CASH OUT ${(playerBet.amount * (gameState.multiplier / playerBet.entryMultiplier)).toFixed(2)}
+          </button>
+        )}
+      </div>
+
+      {/* Preparing message */}
+      {gameState.isPreparing && (
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
+          <div className="text-center">
+            <div className="text-yellow-400 font-bold text-4xl mb-2">🚀 GET READY</div>
+            <div className="text-white text-xl">Game starting soon...</div>
+          </div>
+        </div>
+      )}
+
+      {/* Watermark */}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[#be191c] font-bold text-5xl opacity-5 z-0">
+        RUGS.FUN
+      </div>
+    </div>
+  );
+};
+
+export default MainChart;

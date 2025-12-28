@@ -1,0 +1,151 @@
+import React, { createContext, useState, ReactNode, useContext } from 'react';
+
+interface PlayerBet {
+  amount: number;
+  entryMultiplier: number;
+  isActive: boolean;
+}
+
+interface BettingContextType {
+  // Bet state
+  playerBet: PlayerBet;
+  setPlayerBet: React.Dispatch<React.SetStateAction<PlayerBet>>;
+  betAmount: string;
+  setBetAmount: React.Dispatch<React.SetStateAction<string>>;
+  sellPercentage: string;
+  setSellPercentage: React.Dispatch<React.SetStateAction<string>>;
+  balance: number;
+  setBalance: React.Dispatch<React.SetStateAction<number>>;
+  
+  // Game state to access multiplier
+  multiplier: number;
+  isGameActive: boolean;
+  hasCrashed: boolean;
+  crashPoint: number;
+  setGameState: (state: {
+    isGameActive: boolean;
+    currentMultiplier: number;
+    crashPoint: number;
+  }) => void;
+  
+  // Betting functions
+  placeBet: () => void;
+  cashOut: () => void;
+  getCurrentPnL: () => number;
+}
+
+const BettingContext = createContext<BettingContextType | undefined>(undefined);
+
+export const BettingProvider: React.FC<{children: ReactNode}> = ({ children }) => {
+  // Player bet state
+  const [playerBet, setPlayerBet] = useState<PlayerBet>({
+    amount: 0,
+    entryMultiplier: 0,
+    isActive: false
+  });
+  
+  const [betAmount, setBetAmount] = useState<string>('0.01');
+  const [sellPercentage, setSellPercentage] = useState<string>('100');
+  const [balance, setBalance] = useState<number>(1000);
+  
+  // Game state
+  const [multiplier, setMultiplier] = useState<number>(1.0);
+  const [isGameActive, setIsGameActive] = useState<boolean>(false);
+  const [hasCrashed, setHasCrashed] = useState<boolean>(false);
+  const [crashPoint, setCrashPoint] = useState<number>(0);
+  
+  const setGameState = (state: { isGameActive: boolean, currentMultiplier: number, crashPoint: number }) => {
+    setIsGameActive(state.isGameActive);
+    setMultiplier(state.currentMultiplier);
+    setCrashPoint(state.crashPoint);
+    // Set hasCrashed based on whether the game is active
+    setHasCrashed(!state.isGameActive && state.crashPoint > 0);
+  };
+  
+  // Place bet function
+  const placeBet = () => {
+    if (!isGameActive || playerBet.isActive || hasCrashed) return;
+    
+    const amount = parseFloat(betAmount);
+    if (isNaN(amount) || amount <= 0 || amount > balance) return;
+    
+    setPlayerBet({
+      amount,
+      entryMultiplier: multiplier,
+      isActive: true
+    });
+    
+    setBalance(prev => prev - amount);
+  };
+
+  // Cash out function - can sell partial position
+  const cashOut = () => {
+    if (!playerBet.isActive || !isGameActive) return;
+    
+    const percentage = parseFloat(sellPercentage);
+    if (isNaN(percentage) || percentage <= 0 || percentage > 100) return;
+    
+    // Calculate portion of bet to cash out
+    const portionToSell = percentage / 100;
+    const amountToSell = playerBet.amount * portionToSell;
+    
+    const multiplierGain = multiplier / playerBet.entryMultiplier;
+    const payout = amountToSell * multiplierGain;
+    
+    // Update player's balance
+    setBalance(prev => prev + payout);
+    
+    if (percentage === 100) {
+      // Full cash out
+      setPlayerBet({
+        amount: 0,
+        entryMultiplier: 0,
+        isActive: false
+      });
+    } else {
+      // Partial cash out
+      setPlayerBet(prev => ({
+        ...prev,
+        amount: prev.amount - amountToSell
+      }));
+    }
+  };
+
+  // Calculate current profit/loss
+  const getCurrentPnL = (): number => {
+    if (!playerBet.isActive) return 0;
+    const multiplierGain = multiplier / playerBet.entryMultiplier;
+    return playerBet.amount * multiplierGain - playerBet.amount;
+  };
+  
+  return (
+    <BettingContext.Provider value={{
+      playerBet,
+      setPlayerBet,
+      betAmount,
+      setBetAmount,
+      sellPercentage,
+      setSellPercentage,
+      balance,
+      setBalance,
+      multiplier,
+      isGameActive,
+      hasCrashed,
+      crashPoint,
+      setGameState,
+      placeBet,
+      cashOut,
+      getCurrentPnL
+    }}>
+      {children}
+    </BettingContext.Provider>
+  );
+};
+
+export const useBetting = () => {
+  const context = useContext(BettingContext);
+  if (context === undefined) {
+    throw new Error('useBetting must be used within a BettingProvider');
+  }
+  return context;
+};

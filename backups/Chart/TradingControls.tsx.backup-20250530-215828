@@ -1,0 +1,139 @@
+import React, { useState } from 'react';
+import { useBetting } from '../../context/BettingContext';
+
+type MultiplierButtonProps = {
+  value: string;
+  onClick: () => void;
+};
+
+const MultiplierButton: React.FC<MultiplierButtonProps> = ({ value, onClick }) => {
+  return (
+    <button
+      className="bg-[#1a1a1a] hover:bg-[#2a2a2a] text-white px-3 py-1 rounded text-sm border border-border-light"
+      onClick={onClick}
+    >
+      {value}
+    </button>
+  );
+};
+
+const TradingControls: React.FC = () => {
+  // Use our betting context instead of local state
+  const {
+    betAmount, setBetAmount,
+    sellPercentage, setSellPercentage,
+    balance,
+    playerBet,
+    isGameActive,
+    placeBet,
+    cashOut
+  } = useBetting();
+  
+  const [selectedToken, setSelectedToken] = useState('SOL');
+  const tokenAmount = balance.toFixed(3); // Use balance from context
+
+  const handleBuyAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setBetAmount(e.target.value);
+  };
+
+  const handleSellAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSellPercentage(e.target.value);
+  };
+
+  const applyMultiplier = (input: 'buy' | 'sell', value: string) => {
+    if (input === 'buy') {
+      setBetAmount(value);
+    } else {
+      setSellPercentage(value);
+    }
+  };
+
+  return (
+    <div className="mt-2">
+      <div className="flex space-x-2 mt-4 mb-2">
+        <MultiplierButton value="+0.001" onClick={() => applyMultiplier('buy', '0.001')} />
+        <MultiplierButton value="+0.01" onClick={() => applyMultiplier('buy', '0.01')} />
+        <MultiplierButton value="+0.1" onClick={() => applyMultiplier('buy', '0.1')} />
+        <MultiplierButton value="+1" onClick={() => applyMultiplier('buy', '1')} />
+        <MultiplierButton value="1/2" onClick={() => applyMultiplier('buy', (parseFloat(tokenAmount) / 2).toString())} />
+        <MultiplierButton value="x2" onClick={() => applyMultiplier('buy', (parseFloat(betAmount) * 2).toString())} />
+        <MultiplierButton value="MAX" onClick={() => applyMultiplier('buy', tokenAmount)} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <div className="flex items-center mb-2">
+            <h3 className="text-white text-xl font-bold">Buy</h3>
+          </div>
+          <div className="flex border border-border-light rounded">
+            <input
+              type="text"
+              value={betAmount}
+              onChange={handleBuyAmountChange}
+              className="bg-[#0e0c0d] text-white w-full py-2 px-3 rounded-l outline-none border-none"
+            />
+            <div className="bg-[#1a1a1a] flex items-center rounded-r px-3 border-l border-border-light">
+              <button
+                className="text-white"
+                onClick={() => setSelectedToken(selectedToken === 'SOL' ? 'FREE' : 'SOL')}
+              >
+                <div className="flex items-center">
+                  <span className="mr-1">{selectedToken}</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </div>
+              </button>
+            </div>
+          </div>
+          <button 
+            onClick={placeBet} 
+            disabled={!isGameActive || playerBet.isActive}
+            className="buy-button w-full mt-4 text-xl"
+          >
+            BUY
+          </button>
+        </div>
+
+        <div>
+          <div className="flex items-center mb-2">
+            <h3 className="text-white text-xl font-bold">Sell</h3>
+          </div>
+          <div className="flex items-center border border-border-light rounded">
+            <input
+              type="text"
+              value={sellPercentage}
+              onChange={handleSellAmountChange}
+              className="bg-[#0e0c0d] text-white w-full py-2 px-3 rounded-l outline-none border-none"
+            />
+            <div className="bg-[#1a1a1a] flex items-center rounded-r px-3 border-l border-border-light">
+              <span className="text-white">%</span>
+            </div>
+          </div>
+          <button 
+            onClick={cashOut} 
+            disabled={!isGameActive || !playerBet.isActive}
+            className="sell-button w-full mt-4 text-xl"
+          >
+            SELL
+          </button>
+        </div>
+        
+        {/* Show active bet and P&L if a bet is active */}
+        {playerBet.isActive && (
+          <div className="col-span-2 mt-2 text-center text-white bg-black bg-opacity-50 py-1 px-2 rounded">
+            <span>Active Bet: {playerBet.amount.toFixed(2)} @ {playerBet.entryMultiplier.toFixed(2)}x</span>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-8 text-center">
+        <button className="text-white text-sm underline">
+          Scroll for Leaderboard
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default TradingControls;

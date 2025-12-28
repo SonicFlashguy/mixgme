@@ -33,6 +33,10 @@ interface Candle {
     low: number;
     close: number;
     ticks: number;
+    // Animated values for smooth rendering
+    animatedHigh: number;
+    animatedLow: number;
+    animatedClose: number;
 }
 
 // ===== COMPONENT =====
@@ -78,7 +82,10 @@ const CrashChart: React.FC = () => {
         setDisplayPrice(INITIAL_PRICE);
         setPhase('running');
         setCountdown(0);
-        setCandles([{ open: INITIAL_PRICE, high: INITIAL_PRICE, low: INITIAL_PRICE, close: INITIAL_PRICE, ticks: 0 }]);
+        setCandles([{
+            open: INITIAL_PRICE, high: INITIAL_PRICE, low: INITIAL_PRICE, close: INITIAL_PRICE, ticks: 0,
+            animatedHigh: INITIAL_PRICE, animatedLow: INITIAL_PRICE, animatedClose: INITIAL_PRICE
+        }]);
 
         syncToBetting({ isGameActive: true, currentMultiplier: INITIAL_PRICE, crashPoint: newCrashPoint });
     };
@@ -173,15 +180,16 @@ const CrashChart: React.FC = () => {
             visible.forEach((c, i) => {
                 const x = pad + i * (candleW + candleGap);
                 const openY = toY(c.open);
-                const closeY = toY(c.close);
-                const highY = toY(c.high);
-                const lowY = toY(c.low);
+                // Use ANIMATED values for smooth rendering
+                const closeY = toY(c.animatedClose);
+                const highY = toY(c.animatedHigh);
+                const lowY = toY(c.animatedLow);
 
-                const isGreen = c.close >= c.open;
+                const isGreen = c.animatedClose >= c.open;
                 const isCrash = c.close === 0 && c.low === 0;
                 const color = isCrash ? COLORS.BEARISH : (isGreen ? COLORS.BULLISH : COLORS.BEARISH);
 
-                // Wick
+                // Wick - using animated values
                 ctx.strokeStyle = color;
                 ctx.lineWidth = 1;
                 ctx.beginPath();
@@ -244,43 +252,68 @@ const CrashChart: React.FC = () => {
                     console.log(`💥 CRASH at ${newPrice.toFixed(2)}x`);
                     setPhase('crashed');
                     syncToBetting({ isGameActive: false, currentMultiplier: crashPoint, crashPoint });
-                    setCandles(prev => [...prev, { open: newPrice, high: newPrice, low: 0, close: 0, ticks: 0 }]);
+                    setCandles(prev => [...prev, {
+                        open: newPrice, high: newPrice, low: 0, close: 0, ticks: 0,
+                        animatedHigh: newPrice, animatedLow: 0, animatedClose: 0
+                    }]);
                     setTimeout(() => setCountdown(COUNTDOWN_SECONDS), 2000);
                     return crashPoint;
                 }
 
-                // Update candles
+                // Update candles with animated values
                 setCandles(prev => {
-                    if (prev.length === 0) return [{ open: newPrice, high: newPrice, low: newPrice, close: newPrice, ticks: 1 }];
+                    if (prev.length === 0) return [{
+                        open: newPrice, high: newPrice, low: newPrice, close: newPrice, ticks: 1,
+                        animatedHigh: newPrice, animatedLow: newPrice, animatedClose: newPrice
+                    }];
 
                     const last = prev[prev.length - 1];
                     const newTicks = last.ticks + 1;
 
-                    // Limit wick length - max 30% extension from body
-                    const wickLimit = 0.015; // Maximum wick extension from open/close
+                    // Limit wick length - max extension from body
+                    const wickLimit = 0.015;
                     const bodyHigh = Math.max(last.open, newPrice);
                     const bodyLow = Math.min(last.open, newPrice);
                     const maxHigh = bodyHigh + wickLimit;
                     const maxLow = bodyLow - wickLimit;
 
+                    // Calculate actual high/low
+                    const actualHigh = Math.min(Math.max(last.high, newPrice), maxHigh);
+                    const actualLow = Math.max(Math.min(last.low, newPrice), maxLow);
+
+                    // Smooth interpolation factor for animated values
+                    const animSpeed = 0.4;
+
                     if (newTicks >= TICKS_PER_CANDLE) {
-                        const finalized = {
+                        const finalized: Candle = {
                             ...last,
                             close: newPrice,
-                            high: Math.min(Math.max(last.high, newPrice), maxHigh),
-                            low: Math.max(Math.min(last.low, newPrice), maxLow),
-                            ticks: newTicks
+                            high: actualHigh,
+                            low: actualLow,
+                            ticks: newTicks,
+                            // Snap animated to actual on finalize
+                            animatedHigh: actualHigh,
+                            animatedLow: actualLow,
+                            animatedClose: newPrice
                         };
-                        const newCandle = { open: newPrice, high: newPrice, low: newPrice, close: newPrice, ticks: 0 };
+                        const newCandle: Candle = {
+                            open: newPrice, high: newPrice, low: newPrice, close: newPrice, ticks: 0,
+                            animatedHigh: newPrice, animatedLow: newPrice, animatedClose: newPrice
+                        };
                         return [...prev.slice(0, -1), finalized, newCandle].slice(-50);
                     }
 
+                    // Interpolate animated values toward actual values
                     return [...prev.slice(0, -1), {
                         ...last,
-                        high: Math.min(Math.max(last.high, newPrice), maxHigh),
-                        low: Math.max(Math.min(last.low, newPrice), maxLow),
+                        high: actualHigh,
+                        low: actualLow,
                         close: newPrice,
                         ticks: newTicks,
+                        // Smooth animation toward target values
+                        animatedHigh: last.animatedHigh + (actualHigh - last.animatedHigh) * animSpeed,
+                        animatedLow: last.animatedLow + (actualLow - last.animatedLow) * animSpeed,
+                        animatedClose: last.animatedClose + (newPrice - last.animatedClose) * animSpeed,
                     }];
                 });
 

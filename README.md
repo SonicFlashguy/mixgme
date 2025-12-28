@@ -2,7 +2,7 @@
 
 A React/TypeScript application featuring a professional-grade candlestick chart that simulates cryptocurrency trading experiences. This application includes a modern trading interface with real-time price updates and dynamic candlestick rendering.
 
-![Candlestick Chart Example](public/rugsfun_logo.png)
+
 
 ## Features
 
